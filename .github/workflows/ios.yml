@@ -15,7 +15,7 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Choose simulator
+      - name: Choose and boot simulator
         id: simulator
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c '
@@ -31,11 +31,14 @@ jobs:
           raise SystemExit("No available iPhone simulator")
           ')
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
 
       - name: Unsigned simulator build
         run: |
           set -o pipefail
           xcodebuild \
+            -quiet \
             -project GT2Spotify.xcodeproj \
             -scheme GT2Spotify \
             -sdk iphonesimulator \
@@ -47,9 +50,18 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild \
+            -quiet \
             -project GT2Spotify.xcodeproj \
             -scheme GT2Spotify \
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO \
-            test
+            test 2>&1 | tee /tmp/gt2spotify-tests.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::group::Relevant XCTest diagnostics"
+            grep -nE "error:|failed|Failure|Assertion|Test Case|TEST FAILED" /tmp/gt2spotify-tests.log | tail -n 200 || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
