@@ -65,3 +65,12 @@ jobs:
             echo "::endgroup::"
             exit "$status"
           fi
+
+      - name: Upload XCTest failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xctest-failure-log
+          path: /tmp/gt2spotify-tests.log
+          if-no-files-found: warn
+          retention-days: 7
