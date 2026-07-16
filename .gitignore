@@ -1,0 +1,21 @@
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# Local configuration and signing
+Config.xcconfig
+*.mobileprovision
+*.p12
+*.cer
+
+# Private diagnostics and captures
+diagnostics-private/
+*.pcap
+*.pcapng
+
+# macOS
+.DS_Store
