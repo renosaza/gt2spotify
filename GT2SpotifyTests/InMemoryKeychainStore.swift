@@ -14,6 +14,6 @@ final class InMemoryKeychainStore: KeychainStoring, @unchecked Sendable {
     }
 
     func removeValue(for key: String) throws {
-        lock.withLock { values.removeValue(forKey: key) }
+        _ = lock.withLock { values.removeValue(forKey: key) }
     }
 }
