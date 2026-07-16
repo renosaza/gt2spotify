@@ -40,7 +40,7 @@
     <key>SpotifyClientID</key>
     <string>$(SPOTIFY_CLIENT_ID)</string>
     <key>SpotifyRedirectURI</key>
-    <string>https://renosaza.github.io/gt2spotify/oauth/callback.html</string>
+    <string>$(SPOTIFY_REDIRECT_URI)</string>
     <key>AppURLScheme</key>
     <string>$(APP_URL_SCHEME)</string>
     <key>UIApplicationSupportsIndirectInputEvents</key>
