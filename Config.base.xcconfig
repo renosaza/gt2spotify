@@ -1,0 +1,4 @@
+// Safe defaults. Local overrides belong in ignored Config.xcconfig.
+SPOTIFY_CLIENT_ID =
+APP_URL_SCHEME = gt2spotify
+#include? "Config.xcconfig"
