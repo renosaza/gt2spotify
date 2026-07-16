@@ -5,6 +5,10 @@ on:
     branches: [main, feat/bootstrap]
   pull_request:
 
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: macos-15
@@ -31,8 +35,23 @@ jobs:
           raise SystemExit("No available iPhone simulator")
           ')
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
-          xcrun simctl boot "$UDID" 2>/dev/null || true
-          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl shutdown all 2>/dev/null || true
+          xcrun simctl boot "$UDID"
+
+          booted=false
+          for attempt in {1..120}; do
+            if xcrun simctl list devices "$UDID" | grep -q "(Booted)"; then
+              booted=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$booted" != true ]; then
+            echo "Simulator did not boot within 120 seconds"
+            xcrun simctl list devices "$UDID"
+            exit 1
+          fi
 
       - name: Unsigned simulator build
         run: |
