@@ -1,0 +1,5 @@
+// Copy this file to Config.xcconfig and fill in your public Spotify Client ID.
+// Never add a Spotify client secret: native PKCE clients must not use one.
+SPOTIFY_CLIENT_ID = YOUR_SPOTIFY_CLIENT_ID
+SPOTIFY_REDIRECT_URI = https://renosaza.github.io/gt2spotify/oauth/callback.html
+APP_URL_SCHEME = gt2spotify

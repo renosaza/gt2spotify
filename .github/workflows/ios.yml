@@ -1,0 +1,95 @@
+name: iOS build and tests
+
+on:
+  push:
+    branches: [main, feat/bootstrap]
+  pull_request:
+
+concurrency:
+  group: ios-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Choose and boot simulator
+        id: simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data=json.load(sys.stdin)
+          for runtime, devices in data["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          raise SystemExit("No available iPhone simulator")
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl shutdown all 2>/dev/null || true
+          xcrun simctl boot "$UDID"
+
+          booted=false
+          for attempt in {1..120}; do
+            if xcrun simctl list devices "$UDID" | grep -q "(Booted)"; then
+              booted=true
+              break
+            fi
+            sleep 1
+          done
+
+          if [ "$booted" != true ]; then
+            echo "Simulator did not boot within 120 seconds"
+            xcrun simctl list devices "$UDID"
+            exit 1
+          fi
+
+      - name: Unsigned simulator build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -quiet \
+            -project GT2Spotify.xcodeproj \
+            -scheme GT2Spotify \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -quiet \
+            -project GT2Spotify.xcodeproj \
+            -scheme GT2Spotify \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            test 2>&1 | tee /tmp/gt2spotify-tests.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::group::Relevant XCTest diagnostics"
+            grep -nE "error:|failed|Failure|Assertion|Test Case|TEST FAILED" /tmp/gt2spotify-tests.log | tail -n 200 || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
+
+      - name: Upload XCTest failure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xctest-failure-log
+          path: /tmp/gt2spotify-tests.log
+          if-no-files-found: warn
+          retention-days: 7

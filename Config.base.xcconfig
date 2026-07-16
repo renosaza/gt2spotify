@@ -1,0 +1,5 @@
+// Safe defaults. Local overrides belong in ignored Config.xcconfig.
+SPOTIFY_CLIENT_ID =
+SPOTIFY_REDIRECT_URI = https://renosaza.github.io/gt2spotify/oauth/callback.html
+APP_URL_SCHEME = gt2spotify
+#include? "Config.xcconfig"
