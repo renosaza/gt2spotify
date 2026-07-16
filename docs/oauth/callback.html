@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>Open GT2Spotify</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 2rem; background: #111; color: #f5f5f5; }
+    main { max-width: 34rem; margin: 10vh auto; }
+    a { display: inline-block; margin-top: 1rem; padding: .8rem 1rem; border-radius: .7rem; background: #1ed760; color: #07130a; text-decoration: none; font-weight: 700; }
+    code { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Return to GT2Spotify</h1>
+  <p id="status">Preparing callback…</p>
+  <a id="open" hidden>Open GT2Spotify</a>
+  <noscript>JavaScript is required only to pass this OAuth response back to the installed app.</noscript>
+</main>
+<script>
+(() => {
+  const params = new URLSearchParams(window.location.search);
+  const allowed = new URLSearchParams();
+  for (const key of ['code', 'state', 'error', 'error_description']) {
+    const value = params.get(key);
+    if (value !== null) allowed.set(key, value);
+  }
+
+  const hasSuccess = allowed.has('code') && allowed.has('state');
+  const hasError = allowed.has('error');
+  const status = document.getElementById('status');
+  const button = document.getElementById('open');
+
+  if (!hasSuccess && !hasError) {
+    status.textContent = 'Missing OAuth response. Start authorization from the GT2Spotify app.';
+    return;
+  }
+
+  const deepLink = `gt2spotify://oauth/callback?${allowed.toString()}`;
+  button.href = deepLink;
+  button.hidden = false;
+  status.textContent = 'Opening GT2Spotify. If nothing happens, use the button below.';
+
+  window.location.replace(deepLink);
+})();
+</script>
+</body>
+</html>
