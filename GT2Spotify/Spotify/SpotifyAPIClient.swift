@@ -9,7 +9,7 @@ actor SpotifyAPIClient {
         case pause
         case next
         case previous
-        case volume(Int)
+        case volume(Int, String?)
 
         var method: String {
             switch self {
@@ -70,8 +70,8 @@ actor SpotifyAPIClient {
     func next() async throws { _ = try await request(.next) }
     func previous() async throws { _ = try await request(.previous) }
 
-    func setVolume(_ percent: Int) async throws {
-        _ = try await request(.volume(min(max(percent, 0), 100)))
+    func setVolume(_ percent: Int, deviceID: String? = nil) async throws {
+        _ = try await request(.volume(min(max(percent, 0), 100), deviceID))
     }
 
     private func request(_ endpoint: Endpoint, allowUnauthorizedRetry: Bool = true) async throws -> Data {
@@ -128,8 +128,12 @@ actor SpotifyAPIClient {
 
     private func makeRequest(endpoint: Endpoint, token: String) throws -> URLRequest {
         var components = URLComponents(url: baseURL.appendingPathComponent(endpoint.path), resolvingAgainstBaseURL: false)
-        if case .volume(let percent) = endpoint {
-            components?.queryItems = [URLQueryItem(name: "volume_percent", value: String(percent))]
+        if case .volume(let percent, let deviceID) = endpoint {
+            var queryItems = [URLQueryItem(name: "volume_percent", value: String(percent))]
+            if let deviceID, !deviceID.isEmpty {
+                queryItems.append(URLQueryItem(name: "device_id", value: deviceID))
+            }
+            components?.queryItems = queryItems
         }
         guard let url = components?.url else { throw SpotifyError.invalidResponse }
         var request = URLRequest(url: url)

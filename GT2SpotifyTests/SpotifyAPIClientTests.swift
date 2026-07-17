@@ -14,7 +14,7 @@ final class SpotifyAPIClientTests: XCTestCase {
             return response(
                 request,
                 status: 200,
-                body: #"{"is_playing":true,"device":{"id":"iphone","is_active":true,"is_private_session":false,"is_restricted":false,"name":"iPhone","type":"Smartphone","volume_percent":42},"item":{"name":"Track","artists":[{"name":"Artist"}]}}"#
+                body: #"{"is_playing":true,"device":{"id":"iphone","is_active":true,"is_private_session":false,"is_restricted":false,"name":"iPhone","type":"Smartphone","volume_percent":42,"supports_volume":false},"item":{"name":"Track","artists":[{"name":"Artist"}]}}"#
             )
         }
 
@@ -22,8 +22,26 @@ final class SpotifyAPIClientTests: XCTestCase {
         XCTAssertEqual(snapshot?.track, "Track")
         XCTAssertEqual(snapshot?.artist, "Artist")
         XCTAssertEqual(snapshot?.volumePercent, 42)
+        XCTAssertEqual(snapshot?.supportsVolume, false)
         XCTAssertEqual(snapshot?.deviceID, "iphone")
         XCTAssertEqual(snapshot?.isPlaying, true)
+    }
+
+    func testDevicesDecodeVolumeCapability() async throws {
+        let context = try await makeContext()
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/me/player/devices")
+            return response(
+                request,
+                status: 200,
+                body: #"{"devices":[{"id":"mac","is_active":true,"is_private_session":false,"is_restricted":false,"name":"MacBook","type":"Computer","volume_percent":68,"supports_volume":true},{"id":"iphone","is_active":false,"is_private_session":false,"is_restricted":false,"name":"iPhone","type":"Smartphone","volume_percent":null,"supports_volume":false}]}"#
+            )
+        }
+
+        let devices = try await context.api.devices()
+        XCTAssertEqual(devices.count, 2)
+        XCTAssertEqual(devices[0].supportsVolume, true)
+        XCTAssertEqual(devices[1].supportsVolume, false)
     }
 
     func testEmptyPlaybackReturnsNil() async throws {
@@ -102,10 +120,71 @@ final class SpotifyAPIClientTests: XCTestCase {
     func testVolumeIsClamped() async throws {
         let context = try await makeContext()
         MockURLProtocol.requestHandler = { request in
-            XCTAssertEqual(URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "100")
+            let query = Dictionary(
+                uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                    .compactMap { item in item.value.map { (item.name, $0) } }
+            )
+            XCTAssertEqual(query["volume_percent"], "100")
+            XCTAssertNil(query["device_id"])
             return response(request, status: 204)
         }
         try await context.api.setVolume(150)
+    }
+
+    func testPlayerControllerTargetsSupportedActiveDevice() async throws {
+        let context = try await makeContext()
+        let controller = SpotifyPlayerController(apiClient: context.api)
+        var requestCount = 0
+
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            switch request.url?.path {
+            case "/v1/me/player":
+                return response(
+                    request,
+                    status: 200,
+                    body: #"{"is_playing":true,"device":{"id":"mac","is_active":true,"is_private_session":false,"is_restricted":false,"name":"MacBook","type":"Computer","volume_percent":40,"supports_volume":true},"item":{"name":"Track","artists":[{"name":"Artist"}]}}"#
+                )
+            case "/v1/me/player/volume":
+                let query = Dictionary(
+                    uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                        .compactMap { item in item.value.map { (item.name, $0) } }
+                )
+                XCTAssertEqual(query["volume_percent"], "55")
+                XCTAssertEqual(query["device_id"], "mac")
+                return response(request, status: 204)
+            default:
+                XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
+                return response(request, status: 500)
+            }
+        }
+
+        try await controller.setVolume(55)
+        XCTAssertEqual(requestCount, 2)
+    }
+
+    func testPlayerControllerRejectsUnsupportedVolumeDevice() async throws {
+        let context = try await makeContext()
+        let controller = SpotifyPlayerController(apiClient: context.api)
+        var requestCount = 0
+
+        MockURLProtocol.requestHandler = { request in
+            requestCount += 1
+            XCTAssertEqual(request.url?.path, "/v1/me/player")
+            return response(
+                request,
+                status: 200,
+                body: #"{"is_playing":true,"device":{"id":"iphone","is_active":true,"is_private_session":false,"is_restricted":false,"name":"iPhone","type":"Smartphone","volume_percent":42,"supports_volume":false},"item":{"name":"Track","artists":[{"name":"Artist"}]}}"#
+            )
+        }
+
+        do {
+            try await controller.setVolume(55)
+            XCTFail("Expected volumeControlUnavailable")
+        } catch let error as SpotifyError {
+            XCTAssertEqual(error, .volumeControlUnavailable(deviceName: "iPhone"))
+        }
+        XCTAssertEqual(requestCount, 1)
     }
 
     func testMalformedPlaybackJSONMapsToDecodingError() async throws {
