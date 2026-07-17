@@ -8,10 +8,68 @@ struct DiscoveredPeripheral: Identifiable, Equatable, Sendable {
     var advertisementSummary: String
     var lastSeen: Date
 
-    var displayName: String { name?.isEmpty == false ? name! : "Unknown peripheral" }
+    var shortIdentifier: String {
+        String(id.uuidString.replacingOccurrences(of: "-", with: "").suffix(6)).uppercased()
+    }
+
+    var displayName: String {
+        name?.isEmpty == false ? name! : "Unknown • \(shortIdentifier)"
+    }
+
     var watchPriority: Int {
         let value = displayName.lowercased()
         return value.contains("huawei") || value.contains("watch") || value.contains("gt 2") ? 0 : 1
+    }
+}
+
+struct ConnectedPeripheralCandidate: Identifiable, Equatable, Sendable {
+    let id: UUID
+    var name: String?
+    var matchedServiceUUIDs: [String]
+    var isRemembered: Bool
+
+    var shortIdentifier: String {
+        String(id.uuidString.replacingOccurrences(of: "-", with: "").suffix(6)).uppercased()
+    }
+
+    var displayName: String {
+        name?.isEmpty == false ? name! : "Unknown • \(shortIdentifier)"
+    }
+
+    var watchPriority: Int {
+        let value = displayName.lowercased()
+        return value.contains("huawei") || value.contains("watch") || value.contains("gt 2") ? 0 : 1
+    }
+}
+
+struct ConnectedPeripheralCandidateRegistry: Sendable {
+    private(set) var values: [UUID: ConnectedPeripheralCandidate] = [:]
+
+    mutating func ingest(id: UUID, name: String?, serviceUUID: String, isRemembered: Bool) {
+        if var current = values[id] {
+            current.name = name ?? current.name
+            if !current.matchedServiceUUIDs.contains(serviceUUID) {
+                current.matchedServiceUUIDs.append(serviceUUID)
+                current.matchedServiceUUIDs.sort()
+            }
+            current.isRemembered = current.isRemembered || isRemembered
+            values[id] = current
+        } else {
+            values[id] = ConnectedPeripheralCandidate(
+                id: id,
+                name: name,
+                matchedServiceUUIDs: [serviceUUID],
+                isRemembered: isRemembered
+            )
+        }
+    }
+
+    var sorted: [ConnectedPeripheralCandidate] {
+        values.values.sorted {
+            if $0.isRemembered != $1.isRemembered { return $0.isRemembered }
+            if $0.watchPriority != $1.watchPriority { return $0.watchPriority < $1.watchPriority }
+            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
     }
 }
 
@@ -46,11 +104,16 @@ struct BluetoothLogEntry: Identifiable, Equatable, Sendable {
     }
 }
 
+enum BluetoothKnownServices {
+    static let connectedProbeUUIDStrings = ["FE01", "FE02"]
+    static var connectedProbeUUIDs: [CBUUID] { connectedProbeUUIDStrings.map(CBUUID.init(string:)) }
+}
+
 enum BluetoothUUIDFormatter {
     static func string(_ uuid: CBUUID) -> String { uuid.uuidString.uppercased() }
     static func isHighlighted(_ value: String) -> Bool {
         let normalized = value.replacingOccurrences(of: "0x", with: "", options: .caseInsensitive).uppercased()
-        return normalized == "FE01" || normalized == "FE02"
+        return BluetoothKnownServices.connectedProbeUUIDStrings.contains(normalized)
     }
 }
 
