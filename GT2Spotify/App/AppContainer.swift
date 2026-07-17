@@ -4,6 +4,7 @@ import Combine
 @MainActor
 final class AppContainer: ObservableObject {
     let dashboardViewModel: DashboardViewModel
+    let bluetoothController: BluetoothCentralController
 
     init(configuration: AppConfiguration = .current) {
         let keychain = SystemKeychainStore(service: configuration.keychainService)
@@ -31,5 +32,6 @@ final class AppContainer: ObservableObject {
             authorizationController: authorizationController,
             playerController: playerController
         )
+        bluetoothController = BluetoothCentralController()
     }
 }
