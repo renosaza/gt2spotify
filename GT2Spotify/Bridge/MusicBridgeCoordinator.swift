@@ -20,12 +20,26 @@ actor MusicBridgeCoordinator {
     }
 }
 
+struct HuaweiFingerprint: Equatable, Sendable {
+    let score: Int
+    let reasons: [String]
+
+    var classification: String {
+        switch score {
+        case 5...: "Strong Huawei candidate"
+        case 2...: "Possible Huawei device"
+        default: "No Huawei fingerprint"
+        }
+    }
+}
+
 struct DiscoveredPeripheral: Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String?
     var rssi: Int
     var advertisementSummary: String
     var lastSeen: Date
+    var fingerprint: HuaweiFingerprint
 
     var shortIdentifier: String {
         String(id.uuidString.replacingOccurrences(of: "-", with: "").suffix(6)).uppercased()
@@ -36,59 +50,11 @@ struct DiscoveredPeripheral: Identifiable, Equatable, Sendable {
     }
 
     var watchPriority: Int {
+        if fingerprint.score >= 5 { return 0 }
+        if fingerprint.score >= 2 { return 1 }
         let value = displayName.lowercased()
-        return value.contains("huawei") || value.contains("watch") || value.contains("gt 2") ? 0 : 1
-    }
-}
-
-struct ConnectedPeripheralCandidate: Identifiable, Equatable, Sendable {
-    let id: UUID
-    var name: String?
-    var matchedServiceUUIDs: [String]
-    var isRemembered: Bool
-
-    var shortIdentifier: String {
-        String(id.uuidString.replacingOccurrences(of: "-", with: "").suffix(6)).uppercased()
-    }
-
-    var displayName: String {
-        name?.isEmpty == false ? name! : "Unknown • \(shortIdentifier)"
-    }
-
-    var watchPriority: Int {
-        let value = displayName.lowercased()
-        return value.contains("huawei") || value.contains("watch") || value.contains("gt 2") ? 0 : 1
-    }
-}
-
-struct ConnectedPeripheralCandidateRegistry: Sendable {
-    private(set) var values: [UUID: ConnectedPeripheralCandidate] = [:]
-
-    mutating func ingest(id: UUID, name: String?, serviceUUID: String, isRemembered: Bool) {
-        if var current = values[id] {
-            current.name = name ?? current.name
-            if !current.matchedServiceUUIDs.contains(serviceUUID) {
-                current.matchedServiceUUIDs.append(serviceUUID)
-                current.matchedServiceUUIDs.sort()
-            }
-            current.isRemembered = current.isRemembered || isRemembered
-            values[id] = current
-        } else {
-            values[id] = ConnectedPeripheralCandidate(
-                id: id,
-                name: name,
-                matchedServiceUUIDs: [serviceUUID],
-                isRemembered: isRemembered
-            )
-        }
-    }
-
-    var sorted: [ConnectedPeripheralCandidate] {
-        values.values.sorted {
-            if $0.isRemembered != $1.isRemembered { return $0.isRemembered }
-            if $0.watchPriority != $1.watchPriority { return $0.watchPriority < $1.watchPriority }
-            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
+        if value.contains("huawei") || value.contains("watch") || value.contains("gt 2") { return 0 }
+        return 2
     }
 }
 
@@ -124,15 +90,15 @@ struct BluetoothLogEntry: Identifiable, Equatable, Sendable {
 }
 
 enum BluetoothKnownServices {
-    static let connectedProbeUUIDStrings = ["FE01", "FE02"]
-    static var connectedProbeUUIDs: [CBUUID] { connectedProbeUUIDStrings.map(CBUUID.init(string:)) }
+    static let huaweiServiceUUIDs: Set<String> = ["FE35", "FE36", "FE86", "FD9A", "FD9B", "FD9C"]
+    static let huaweiCompanyIdentifier: UInt16 = 0x027D
 }
 
 enum BluetoothUUIDFormatter {
     static func string(_ uuid: CBUUID) -> String { uuid.uuidString.uppercased() }
     static func isHighlighted(_ value: String) -> Bool {
         let normalized = value.replacingOccurrences(of: "0x", with: "", options: .caseInsensitive).uppercased()
-        return BluetoothKnownServices.connectedProbeUUIDStrings.contains(normalized)
+        return BluetoothKnownServices.huaweiServiceUUIDs.contains(normalized)
     }
 }
 
@@ -153,15 +119,55 @@ enum BluetoothAdvertisementFormatter {
     }
 }
 
+enum HuaweiAdvertisementClassifier {
+    static func classify(name: String?, advertisementData: [String: Any]) -> HuaweiFingerprint {
+        var score = 0
+        var reasons: [String] = []
+
+        let normalizedName = name?.lowercased() ?? ""
+        if normalizedName.contains("huawei") {
+            score += 5
+            reasons.append("name contains Huawei")
+        } else if normalizedName.contains("watch") || normalizedName.contains("gt 2") {
+            score += 3
+            reasons.append("watch-like name")
+        }
+
+        if let manufacturer = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
+           manufacturer.count >= 2 {
+            let companyID = UInt16(manufacturer[0]) | (UInt16(manufacturer[1]) << 8)
+            if companyID == BluetoothKnownServices.huaweiCompanyIdentifier {
+                score += 6
+                reasons.append("Huawei company ID 0x027D")
+            }
+        }
+
+        let serviceLists: [[CBUUID]] = [
+            advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? [],
+            advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? [],
+            advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] as? [CBUUID] ?? []
+        ]
+        let advertisedServices = Set(serviceLists.flatMap { $0 }.map { BluetoothUUIDFormatter.string($0) })
+        let matchedServices = advertisedServices.intersection(BluetoothKnownServices.huaweiServiceUUIDs).sorted()
+        if !matchedServices.isEmpty {
+            score += 4
+            reasons.append("Huawei service \(matchedServices.joined(separator: ", "))")
+        }
+
+        return HuaweiFingerprint(score: score, reasons: reasons)
+    }
+}
+
 struct DiscoveredPeripheralRegistry: Sendable {
     private(set) var values: [UUID: DiscoveredPeripheral] = [:]
 
-    mutating func ingest(id: UUID, name: String?, rssi: Int, advertisementSummary: String, seenAt: Date) {
+    mutating func ingest(id: UUID, name: String?, rssi: Int, advertisementSummary: String, fingerprint: HuaweiFingerprint, seenAt: Date) {
         if var current = values[id] {
             current.name = name ?? current.name
             current.rssi = rssi
             current.advertisementSummary = advertisementSummary
             current.lastSeen = seenAt
+            if fingerprint.score > current.fingerprint.score { current.fingerprint = fingerprint }
             values[id] = current
         } else {
             values[id] = DiscoveredPeripheral(
@@ -169,7 +175,8 @@ struct DiscoveredPeripheralRegistry: Sendable {
                 name: name,
                 rssi: rssi,
                 advertisementSummary: advertisementSummary,
-                lastSeen: seenAt
+                lastSeen: seenAt,
+                fingerprint: fingerprint
             )
         }
     }
@@ -177,6 +184,7 @@ struct DiscoveredPeripheralRegistry: Sendable {
     var sorted: [DiscoveredPeripheral] {
         values.values.sorted {
             if $0.watchPriority != $1.watchPriority { return $0.watchPriority < $1.watchPriority }
+            if $0.fingerprint.score != $1.fingerprint.score { return $0.fingerprint.score > $1.fingerprint.score }
             if $0.rssi != $1.rssi { return $0.rssi > $1.rssi }
             return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
@@ -211,7 +219,6 @@ final class BluetoothCentralController: NSObject, ObservableObject {
     @Published private(set) var state: CBManagerState = .unknown
     @Published private(set) var isScanning = false
     @Published private(set) var discovered: [DiscoveredPeripheral] = []
-    @Published private(set) var connectedCandidates: [ConnectedPeripheralCandidate] = []
     @Published private(set) var rememberedPeripheralID: UUID?
     @Published private(set) var rememberedPeripheral: DiscoveredPeripheral?
     @Published private(set) var connectedPeripheral: DiscoveredPeripheral?
@@ -244,7 +251,7 @@ final class BluetoothCentralController: NSObject, ObservableObject {
         discovered = []
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
         isScanning = true
-        statusMessage = "Scanning for nearby BLE peripherals"
+        statusMessage = "Scanning. Huawei candidates are ranked from advertisement fingerprints."
     }
 
     func stopScan() {
@@ -253,22 +260,18 @@ final class BluetoothCentralController: NSObject, ObservableObject {
         statusMessage = "Scan stopped"
     }
 
-    func refreshKnownDevices() {
-        guard state == .poweredOn else {
-            statusMessage = "Bluetooth must be powered on before checking connected devices"
-            return
-        }
+    func refreshRememberedDevice() {
+        guard state == .poweredOn else { return }
         refreshRememberedPeripheral()
-        refreshConnectedCandidates()
-        statusMessage = connectedCandidates.isEmpty
-            ? "No system-connected peripherals matched FE01 or FE02"
-            : "Found \(connectedCandidates.count) system-connected BLE candidate(s)"
+        statusMessage = rememberedPeripheralID == nil
+            ? "No watch has been remembered yet"
+            : "Refreshed remembered watch identifier"
     }
 
     func connect(id: UUID) {
         if peripherals[id] == nil { refreshRememberedPeripheral() }
         guard let peripheral = peripherals[id] else {
-            statusMessage = "Device is not currently retrievable; scan or refresh connected devices"
+            statusMessage = "Device is not currently retrievable; scan again"
             return
         }
         stopScan()
@@ -285,7 +288,6 @@ final class BluetoothCentralController: NSObject, ObservableObject {
         rememberedPeripheralID = id
         userDefaults.set(id.uuidString, forKey: Self.rememberedPeripheralKey)
         refreshRememberedPeripheral()
-        refreshConnectedCandidates()
         statusMessage = "Remembered \(id.uuidString) as the watch"
     }
 
@@ -293,7 +295,6 @@ final class BluetoothCentralController: NSObject, ObservableObject {
         rememberedPeripheralID = nil
         rememberedPeripheral = nil
         userDefaults.removeObject(forKey: Self.rememberedPeripheralKey)
-        refreshConnectedCandidates()
         statusMessage = "Forgot the saved watch identifier"
     }
 
@@ -312,23 +313,6 @@ final class BluetoothCentralController: NSObject, ObservableObject {
     func logSnapshot() async -> [BluetoothLogEntry] { await logStore.snapshot() }
     func exportText() async -> String { await logStore.exportText() }
 
-    private func refreshConnectedCandidates() {
-        var candidateRegistry = ConnectedPeripheralCandidateRegistry()
-        for service in BluetoothKnownServices.connectedProbeUUIDs {
-            let serviceUUID = BluetoothUUIDFormatter.string(service)
-            for peripheral in central.retrieveConnectedPeripherals(withServices: [service]) {
-                peripherals[peripheral.identifier] = peripheral
-                candidateRegistry.ingest(
-                    id: peripheral.identifier,
-                    name: peripheral.name,
-                    serviceUUID: serviceUUID,
-                    isRemembered: peripheral.identifier == rememberedPeripheralID
-                )
-            }
-        }
-        connectedCandidates = candidateRegistry.sorted
-    }
-
     private func refreshRememberedPeripheral() {
         guard let id = rememberedPeripheralID else {
             rememberedPeripheral = nil
@@ -337,24 +321,22 @@ final class BluetoothCentralController: NSObject, ObservableObject {
 
         if let peripheral = central.retrievePeripherals(withIdentifiers: [id]).first {
             peripherals[id] = peripheral
-            if let discoveredValue = registry.values[id] {
-                rememberedPeripheral = discoveredValue
-            } else {
-                rememberedPeripheral = DiscoveredPeripheral(
-                    id: id,
-                    name: peripheral.name,
-                    rssi: 0,
-                    advertisementSummary: "Saved iOS identifier; state=\(connectionStateText(id: id))",
-                    lastSeen: Date()
-                )
-            }
+            rememberedPeripheral = registry.values[id] ?? DiscoveredPeripheral(
+                id: id,
+                name: peripheral.name,
+                rssi: 0,
+                advertisementSummary: "Saved iOS identifier; state=\(connectionStateText(id: id))",
+                lastSeen: Date(),
+                fingerprint: HuaweiFingerprint(score: 0, reasons: ["remembered by user"])
+            )
         } else {
             rememberedPeripheral = DiscoveredPeripheral(
                 id: id,
                 name: nil,
                 rssi: 0,
                 advertisementSummary: "Saved iOS identifier is not currently retrievable",
-                lastSeen: Date()
+                lastSeen: Date(),
+                fingerprint: HuaweiFingerprint(score: 0, reasons: ["remembered by user"])
             )
         }
     }
@@ -407,12 +389,8 @@ extension BluetoothCentralController: CBCentralManagerDelegate {
             case .poweredOn: "Bluetooth is powered on"
             @unknown default: "Unknown Bluetooth state"
             }
-            if central.state == .poweredOn {
-                refreshKnownDevices()
-            } else {
-                isScanning = false
-                connectedCandidates = []
-            }
+            if central.state == .poweredOn { refreshRememberedPeripheral() }
+            else { isScanning = false }
         }
     }
 
@@ -420,11 +398,12 @@ extension BluetoothCentralController: CBCentralManagerDelegate {
         let id = peripheral.identifier
         let name = peripheral.name ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String
         let summary = BluetoothAdvertisementFormatter.summary(advertisementData)
+        let fingerprint = HuaweiAdvertisementClassifier.classify(name: name, advertisementData: advertisementData)
         let rssi = RSSI.intValue
         Task { @MainActor [weak self] in
             guard let self else { return }
             peripherals[id] = peripheral
-            registry.ingest(id: id, name: name, rssi: rssi, advertisementSummary: summary, seenAt: Date())
+            registry.ingest(id: id, name: name, rssi: rssi, advertisementSummary: summary, fingerprint: fingerprint, seenAt: Date())
             discovered = registry.sorted
             if id == rememberedPeripheralID { rememberedPeripheral = registry.values[id] }
         }
@@ -439,12 +418,12 @@ extension BluetoothCentralController: CBCentralManagerDelegate {
                 name: peripheral.name,
                 rssi: 0,
                 advertisementSummary: "Connected without scan metadata",
-                lastSeen: Date()
+                lastSeen: Date(),
+                fingerprint: HuaweiFingerprint(score: 0, reasons: [])
             )
             services = []
             statusMessage = "Connected; discovering services"
             peripheral.discoverServices(nil)
-            refreshKnownDevices()
         }
     }
 
@@ -456,11 +435,9 @@ extension BluetoothCentralController: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            connectedPeripheral = nil
-            services = []
-            statusMessage = error.map { "Disconnected: \($0.localizedDescription)" } ?? "Disconnected"
-            refreshKnownDevices()
+            self?.connectedPeripheral = nil
+            self?.services = []
+            self?.statusMessage = error.map { "Disconnected: \($0.localizedDescription)" } ?? "Disconnected"
         }
     }
 }
