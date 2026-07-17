@@ -18,9 +18,9 @@ Evidence for one mechanism is not evidence for the others.
 
 ## Gadgetbridge transport evidence
 
-The current Gadgetbridge project is hosted on Codeberg. F-Droid lists release `0.92.2` added on 2026-07-13 and identifies the project license as AGPL-3.0-only.
+The current Gadgetbridge project is hosted on Codeberg. F-Droid lists release `0.92.2` added on 2026-07-13, identifies the license as AGPL-3.0-only, and pins version code 251 to source commit `a221d9ab2c0a823bddc6edd18bde8a8f317f75be`.
 
-Codeberg source access was not available to the automated environment during this validation. The transport class relationship was therefore checked against the official archived `Freeyourgadget/Gadgetbridge` GitHub mirror and pinned by file blob SHA in `GADGETBRIDGE_SOURCE_MAP.md`.
+Codeberg source pages were not directly retrievable by the automated environment. The exact current commit was resolved through F-Droid build metadata, while the transport class relationship was checked against the official archived `Freeyourgadget/Gadgetbridge` GitHub mirror and pinned by file blob SHA in `GADGETBRIDGE_SOURCE_MAP.md`.
 
 The checked source shows:
 
