@@ -7,10 +7,15 @@ struct GT2SpotifyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            DashboardView(viewModel: container.dashboardViewModel)
-                .onOpenURL { url in
-                    container.dashboardViewModel.handleOAuthCallback(url)
-                }
+            TabView {
+                DashboardView(viewModel: container.dashboardViewModel)
+                    .tabItem { Label("Spotify", systemImage: "music.note") }
+                BluetoothDashboardView(controller: container.bluetoothController)
+                    .tabItem { Label("Bluetooth", systemImage: "antenna.radiowaves.left.and.right") }
+            }
+            .onOpenURL { url in
+                container.dashboardViewModel.handleOAuthCallback(url)
+            }
         }
     }
 }
