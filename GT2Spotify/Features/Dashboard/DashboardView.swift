@@ -141,83 +141,69 @@ struct BluetoothDashboardView: View {
                         Button("Stop Scan") { controller.stopScan() }
                             .disabled(!controller.isScanning)
                     }
-                    Button("Refresh connected devices") { controller.refreshKnownDevices() }
+                    Button("Refresh remembered watch") { controller.refreshRememberedDevice() }
                         .disabled(controller.state != .poweredOn)
+                }
+
+                Section("How identification works") {
+                    Text("iOS does not expose the complete system Bluetooth device list or a physical BLE MAC address. Scan results are ranked using the advertised name, Huawei manufacturer company ID 0x027D, and Huawei-assigned service UUIDs. A missing fingerprint does not prove a device is not the watch.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Remembered watch") {
                     if let remembered = controller.rememberedPeripheral {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(remembered.displayName).font(.headline)
-                            Text(remembered.id.uuidString).font(.caption2).textSelection(.enabled)
-                            LabeledContent("State", value: controller.connectionStateText(id: remembered.id))
-                            if !remembered.advertisementSummary.isEmpty {
-                                Text(remembered.advertisementSummary).font(.caption2).foregroundStyle(.secondary)
-                            }
-                            HStack {
-                                Button("Connect") { controller.connect(id: remembered.id) }
-                                Button("Forget", role: .destructive) { controller.forgetRememberedPeripheral() }
-                            }
+                        peripheralHeader(remembered)
+                        LabeledContent("State", value: controller.connectionStateText(id: remembered.id))
+                        HStack {
+                            Button("Connect") { controller.connect(id: remembered.id) }
+                            Button("Forget", role: .destructive) { controller.forgetRememberedPeripheral() }
                         }
                     } else {
-                        Text("After identifying the watch, tap Remember on that device. Its iOS Bluetooth identifier will be reused on future launches.")
+                        Text("Identify a device from the scan, connect to inspect its services, then tap Remember as watch.")
                             .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section("Already connected BLE candidates") {
-                    Text("iOS cannot list every paired Bluetooth device. This section checks system-connected peripherals that expose FE01 or FE02.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if controller.connectedCandidates.isEmpty {
-                        Text("No connected peripheral matched FE01 or FE02.")
-                            .foregroundStyle(.secondary)
-                    }
-
-                    ForEach(controller.connectedCandidates) { candidate in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(candidate.displayName).font(.headline)
-                                if candidate.isRemembered {
-                                    Image(systemName: "bookmark.fill").foregroundStyle(.secondary)
-                                }
-                            }
-                            Text(candidate.id.uuidString).font(.caption2).textSelection(.enabled)
-                            LabeledContent("Matched services", value: candidate.matchedServiceUUIDs.joined(separator: ", "))
-                            LabeledContent("State", value: controller.connectionStateText(id: candidate.id))
-                            HStack {
-                                Button("Connect") { controller.connect(id: candidate.id) }
-                                if !candidate.isRemembered {
-                                    Button("Remember as watch") { controller.remember(id: candidate.id) }
-                                }
-                            }
-                        }
                     }
                 }
 
                 Section("Discovered devices") {
                     if controller.discovered.isEmpty {
-                        Text("No peripherals discovered. A watch already connected to Huawei Health may not advertise its name to this app.")
+                        Text("No peripherals discovered yet. Start a scan. A watch connected to Huawei Health may still hide its name or omit Huawei-specific advertisement fields.")
                             .foregroundStyle(.secondary)
                     }
 
                     ForEach(controller.discovered) { peripheral in
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 5) {
                             HStack {
                                 Text(peripheral.displayName).font(.headline)
+                                if peripheral.fingerprint.score >= 5 {
+                                    Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                                } else if peripheral.fingerprint.score >= 2 {
+                                    Image(systemName: "questionmark.diamond.fill").foregroundStyle(.orange)
+                                }
                                 if peripheral.id == controller.rememberedPeripheralID {
                                     Image(systemName: "bookmark.fill").foregroundStyle(.secondary)
                                 }
                             }
                             Text(peripheral.id.uuidString).font(.caption2).textSelection(.enabled)
+                            LabeledContent("Huawei match", value: peripheral.fingerprint.classification)
+                            LabeledContent("Score", value: "\(peripheral.fingerprint.score)")
+                            if !peripheral.fingerprint.reasons.isEmpty {
+                                Text(peripheral.fingerprint.reasons.joined(separator: " • "))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                             LabeledContent("RSSI", value: "\(peripheral.rssi) dBm")
                             LabeledContent("Last seen", value: peripheral.lastSeen.formatted(date: .omitted, time: .standard))
                             if !peripheral.advertisementSummary.isEmpty {
-                                Text(peripheral.advertisementSummary).font(.caption2).foregroundStyle(.secondary)
+                                DisclosureGroup("Advertisement data") {
+                                    Text(peripheral.advertisementSummary)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
                             }
                             HStack {
-                                Button("Connect") { controller.connect(id: peripheral.id) }
+                                Button("Connect and inspect") { controller.connect(id: peripheral.id) }
                                 if peripheral.id != controller.rememberedPeripheralID {
                                     Button("Remember as watch") { controller.remember(id: peripheral.id) }
                                 }
@@ -228,8 +214,7 @@ struct BluetoothDashboardView: View {
 
                 if let connected = controller.connectedPeripheral {
                     Section("Connected peripheral") {
-                        Text(connected.displayName).font(.headline)
-                        Text(connected.id.uuidString).font(.caption2).textSelection(.enabled)
+                        peripheralHeader(connected)
                         LabeledContent("State", value: controller.connectionStateText(id: connected.id))
                         HStack {
                             if connected.id != controller.rememberedPeripheralID {
@@ -257,9 +242,12 @@ struct BluetoothDashboardView: View {
                                 }
                             }
                         } label: {
-                            Text(service.uuid)
-                                .monospaced()
-                                .fontWeight(BluetoothUUIDFormatter.isHighlighted(service.uuid) ? .bold : .regular)
+                            HStack {
+                                Text(service.uuid).monospaced()
+                                if BluetoothUUIDFormatter.isHighlighted(service.uuid) {
+                                    Text("Huawei registered").font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
                 }
@@ -281,7 +269,6 @@ struct BluetoothDashboardView: View {
                         VStack(alignment: .leading) {
                             Text("\(entry.timestamp.formatted(.dateTime.hour().minute().second().secondFraction(.fractional(3)))) \(entry.serviceUUID) / \(entry.characteristicUUID) \(entry.payload.count) bytes")
                                 .font(.caption)
-                                .fontWeight(BluetoothUUIDFormatter.isHighlighted(entry.serviceUUID) ? .bold : .regular)
                             Text(BluetoothHexFormatter.string(entry.payload))
                                 .font(.caption2)
                                 .monospaced()
@@ -291,7 +278,7 @@ struct BluetoothDashboardView: View {
                 }
 
                 Section("Safety boundary") {
-                    Text("Discovery, connected-peripheral lookup, local identifier storage, connect/disconnect, service and characteristic inspection, notify/indicate subscription, and raw receive logging only. No writes, Huawei authentication, bonding, unpairing, reset, background reconnect, or BLE-driven Spotify control.")
+                    Text("Discovery, local fingerprinting, user-selected identifier storage, connect/disconnect, service and characteristic inspection, notify/indicate subscription, and raw receive logging only. No writes, Huawei authentication, bonding, unpairing, reset, background reconnect, or BLE-driven Spotify control.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -303,6 +290,15 @@ struct BluetoothDashboardView: View {
                 contentType: .plainText,
                 defaultFilename: "gt2spotify-ble-log.txt"
             ) { _ in exportDocument = nil }
+        }
+    }
+
+    @ViewBuilder
+    private func peripheralHeader(_ peripheral: DiscoveredPeripheral) -> some View {
+        Text(peripheral.displayName).font(.headline)
+        Text(peripheral.id.uuidString).font(.caption2).textSelection(.enabled)
+        if !peripheral.advertisementSummary.isEmpty {
+            Text(peripheral.advertisementSummary).font(.caption2).foregroundStyle(.secondary)
         }
     }
 
