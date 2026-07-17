@@ -19,7 +19,9 @@ func response(
 
 final class BluetoothDiscoveryTests: XCTestCase {
     func testDuplicateScanUpdatesExistingPeripheral() {
-        let id = UUID(); let first = Date(timeIntervalSince1970: 1); let second = Date(timeIntervalSince1970: 2)
+        let id = UUID()
+        let first = Date(timeIntervalSince1970: 1)
+        let second = Date(timeIntervalSince1970: 2)
         var registry = DiscoveredPeripheralRegistry()
         registry.ingest(id: id, name: "HUAWEI WATCH GT 2", rssi: -80, advertisementSummary: "first", seenAt: first)
         registry.ingest(id: id, name: nil, rssi: -45, advertisementSummary: "second", seenAt: second)
@@ -27,6 +29,19 @@ final class BluetoothDiscoveryTests: XCTestCase {
         XCTAssertEqual(registry.values[id]?.name, "HUAWEI WATCH GT 2")
         XCTAssertEqual(registry.values[id]?.rssi, -45)
         XCTAssertEqual(registry.values[id]?.lastSeen, second)
+    }
+
+    func testUnknownPeripheralIncludesStableShortIdentifier() {
+        let id = UUID(uuidString: "12345678-1234-1234-1234-123456ABCDEF")!
+        let peripheral = DiscoveredPeripheral(
+            id: id,
+            name: nil,
+            rssi: -50,
+            advertisementSummary: "",
+            lastSeen: Date()
+        )
+        XCTAssertEqual(peripheral.shortIdentifier, "ABCDEF")
+        XCTAssertEqual(peripheral.displayName, "Unknown • ABCDEF")
     }
 
     func testWatchNamesSortBeforeStrongerGenericDevice() {
@@ -41,6 +56,31 @@ final class BluetoothDiscoveryTests: XCTestCase {
         registry.ingest(id: UUID(), name: "Device A", rssi: -80, advertisementSummary: "", seenAt: Date())
         registry.ingest(id: UUID(), name: "Device B", rssi: -30, advertisementSummary: "", seenAt: Date())
         XCTAssertEqual(registry.sorted.first?.rssi, -30)
+    }
+
+    func testConnectedCandidateAggregatesMatchedServices() {
+        let id = UUID()
+        var registry = ConnectedPeripheralCandidateRegistry()
+        registry.ingest(id: id, name: nil, serviceUUID: "FE02", isRemembered: false)
+        registry.ingest(id: id, name: "HUAWEI WATCH GT 2", serviceUUID: "FE01", isRemembered: false)
+        registry.ingest(id: id, name: nil, serviceUUID: "FE01", isRemembered: false)
+
+        XCTAssertEqual(registry.values.count, 1)
+        XCTAssertEqual(registry.values[id]?.name, "HUAWEI WATCH GT 2")
+        XCTAssertEqual(registry.values[id]?.matchedServiceUUIDs, ["FE01", "FE02"])
+    }
+
+    func testRememberedConnectedCandidateSortsFirst() {
+        let rememberedID = UUID()
+        var registry = ConnectedPeripheralCandidateRegistry()
+        registry.ingest(id: UUID(), name: "Huawei Watch", serviceUUID: "FE01", isRemembered: false)
+        registry.ingest(id: rememberedID, name: nil, serviceUUID: "FE02", isRemembered: true)
+        XCTAssertEqual(registry.sorted.first?.id, rememberedID)
+    }
+
+    func testKnownConnectedProbeServicesRemainReadOnlyIdentifiers() {
+        XCTAssertEqual(BluetoothKnownServices.connectedProbeUUIDStrings, ["FE01", "FE02"])
+        XCTAssertEqual(BluetoothKnownServices.connectedProbeUUIDs.map(\.uuidString), ["FE01", "FE02"])
     }
 
     func testHexFormatting() {
@@ -61,11 +101,13 @@ final class BluetoothDiscoveryTests: XCTestCase {
     }
 
     func testBoundedLogDropsOldestEntries() async {
-        let store = BluetoothLogStore(capacity: 2); let peripheral = UUID()
+        let store = BluetoothLogStore(capacity: 2)
+        let peripheral = UUID()
         await store.append(BluetoothLogEntry(id: UUID(), peripheralID: peripheral, serviceUUID: "1", characteristicUUID: "A", payload: Data([1])))
         let second = BluetoothLogEntry(id: UUID(), peripheralID: peripheral, serviceUUID: "2", characteristicUUID: "B", payload: Data([2]))
         let third = BluetoothLogEntry(id: UUID(), peripheralID: peripheral, serviceUUID: "3", characteristicUUID: "C", payload: Data([3]))
-        await store.append(second); await store.append(third)
+        await store.append(second)
+        await store.append(third)
         let entries = await store.snapshot()
         XCTAssertEqual(entries.map(\.id), [second.id, third.id])
     }
