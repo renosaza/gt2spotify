@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import CoreBluetooth
 @testable import GT2Spotify
 
 func response(
@@ -18,13 +19,15 @@ func response(
 }
 
 final class BluetoothDiscoveryTests: XCTestCase {
+    private let noFingerprint = HuaweiFingerprint(score: 0, reasons: [])
+
     func testDuplicateScanUpdatesExistingPeripheral() {
         let id = UUID()
         let first = Date(timeIntervalSince1970: 1)
         let second = Date(timeIntervalSince1970: 2)
         var registry = DiscoveredPeripheralRegistry()
-        registry.ingest(id: id, name: "HUAWEI WATCH GT 2", rssi: -80, advertisementSummary: "first", seenAt: first)
-        registry.ingest(id: id, name: nil, rssi: -45, advertisementSummary: "second", seenAt: second)
+        registry.ingest(id: id, name: "HUAWEI WATCH GT 2", rssi: -80, advertisementSummary: "first", fingerprint: noFingerprint, seenAt: first)
+        registry.ingest(id: id, name: nil, rssi: -45, advertisementSummary: "second", fingerprint: noFingerprint, seenAt: second)
         XCTAssertEqual(registry.values.count, 1)
         XCTAssertEqual(registry.values[id]?.name, "HUAWEI WATCH GT 2")
         XCTAssertEqual(registry.values[id]?.rssi, -45)
@@ -38,59 +41,55 @@ final class BluetoothDiscoveryTests: XCTestCase {
             name: nil,
             rssi: -50,
             advertisementSummary: "",
-            lastSeen: Date()
+            lastSeen: Date(),
+            fingerprint: noFingerprint
         )
         XCTAssertEqual(peripheral.shortIdentifier, "ABCDEF")
         XCTAssertEqual(peripheral.displayName, "Unknown • ABCDEF")
     }
 
-    func testWatchNamesSortBeforeStrongerGenericDevice() {
+    func testHuaweiManufacturerCompanyIDIsStrongFingerprint() {
+        let fingerprint = HuaweiAdvertisementClassifier.classify(
+            name: nil,
+            advertisementData: [CBAdvertisementDataManufacturerDataKey: Data([0x7D, 0x02, 0x01, 0x02])]
+        )
+        XCTAssertGreaterThanOrEqual(fingerprint.score, 5)
+        XCTAssertTrue(fingerprint.reasons.contains { $0.contains("0x027D") })
+    }
+
+    func testHuaweiAssignedServiceIsFingerprint() {
+        let fingerprint = HuaweiAdvertisementClassifier.classify(
+            name: nil,
+            advertisementData: [CBAdvertisementDataServiceUUIDsKey: [CBUUID(string: "FE35")]]
+        )
+        XCTAssertGreaterThanOrEqual(fingerprint.score, 2)
+        XCTAssertTrue(fingerprint.reasons.contains { $0.contains("FE35") })
+    }
+
+    func testHuaweiFingerprintSortsBeforeStrongerGenericDevice() {
         var registry = DiscoveredPeripheralRegistry()
-        registry.ingest(id: UUID(), name: "Speaker", rssi: -20, advertisementSummary: "", seenAt: Date())
-        registry.ingest(id: UUID(), name: "Huawei Watch", rssi: -90, advertisementSummary: "", seenAt: Date())
-        XCTAssertEqual(registry.sorted.first?.displayName, "Huawei Watch")
+        registry.ingest(id: UUID(), name: "Speaker", rssi: -20, advertisementSummary: "", fingerprint: noFingerprint, seenAt: Date())
+        registry.ingest(
+            id: UUID(),
+            name: nil,
+            rssi: -90,
+            advertisementSummary: "",
+            fingerprint: HuaweiFingerprint(score: 6, reasons: ["Huawei company ID 0x027D"]),
+            seenAt: Date()
+        )
+        XCTAssertEqual(registry.sorted.first?.fingerprint.score, 6)
     }
 
     func testRSSISortsDescendingAtSamePriority() {
         var registry = DiscoveredPeripheralRegistry()
-        registry.ingest(id: UUID(), name: "Device A", rssi: -80, advertisementSummary: "", seenAt: Date())
-        registry.ingest(id: UUID(), name: "Device B", rssi: -30, advertisementSummary: "", seenAt: Date())
+        registry.ingest(id: UUID(), name: "Device A", rssi: -80, advertisementSummary: "", fingerprint: noFingerprint, seenAt: Date())
+        registry.ingest(id: UUID(), name: "Device B", rssi: -30, advertisementSummary: "", fingerprint: noFingerprint, seenAt: Date())
         XCTAssertEqual(registry.sorted.first?.rssi, -30)
     }
 
-    func testConnectedCandidateAggregatesMatchedServices() {
-        let id = UUID()
-        var registry = ConnectedPeripheralCandidateRegistry()
-        registry.ingest(id: id, name: nil, serviceUUID: "FE02", isRemembered: false)
-        registry.ingest(id: id, name: "HUAWEI WATCH GT 2", serviceUUID: "FE01", isRemembered: false)
-        registry.ingest(id: id, name: nil, serviceUUID: "FE01", isRemembered: false)
-
-        XCTAssertEqual(registry.values.count, 1)
-        XCTAssertEqual(registry.values[id]?.name, "HUAWEI WATCH GT 2")
-        XCTAssertEqual(registry.values[id]?.matchedServiceUUIDs, ["FE01", "FE02"])
-    }
-
-    func testRememberedConnectedCandidateSortsFirst() {
-        let rememberedID = UUID()
-        var registry = ConnectedPeripheralCandidateRegistry()
-        registry.ingest(id: UUID(), name: "Huawei Watch", serviceUUID: "FE01", isRemembered: false)
-        registry.ingest(id: rememberedID, name: nil, serviceUUID: "FE02", isRemembered: true)
-        XCTAssertEqual(registry.sorted.first?.id, rememberedID)
-    }
-
-    func testKnownConnectedProbeServicesRemainReadOnlyIdentifiers() {
-        XCTAssertEqual(BluetoothKnownServices.connectedProbeUUIDStrings, ["FE01", "FE02"])
-        XCTAssertEqual(BluetoothKnownServices.connectedProbeUUIDs.map(\.uuidString), ["FE01", "FE02"])
-    }
-
-    func testHexFormatting() {
-        XCTAssertEqual(BluetoothHexFormatter.string(Data([0x00, 0x0A, 0xFF])), "00 0A FF")
-        XCTAssertEqual(BluetoothHexFormatter.string(Data()), "")
-    }
-
-    func testHighlightedUUIDsAreCaseInsensitive() {
-        XCTAssertTrue(BluetoothUUIDFormatter.isHighlighted("fe01"))
-        XCTAssertTrue(BluetoothUUIDFormatter.isHighlighted("0xFE02"))
+    func testKnownHuaweiServicesAreHighlightedCaseInsensitively() {
+        XCTAssertTrue(BluetoothUUIDFormatter.isHighlighted("fe35"))
+        XCTAssertTrue(BluetoothUUIDFormatter.isHighlighted("0xFD9C"))
         XCTAssertFalse(BluetoothUUIDFormatter.isHighlighted("180F"))
     }
 
