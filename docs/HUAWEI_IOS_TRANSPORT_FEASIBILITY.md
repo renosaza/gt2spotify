@@ -77,21 +77,39 @@ The Bluetooth tab now provides:
 
 The Gate 0 controller performs no characteristic reads or writes, no notification subscriptions, no L2CAP PSM brute force, no `EASession`, no Huawei authentication, and no destructive command.
 
-## Physical evidence required
+## First physical evidence
 
-Run all three scan modes on the target iPhone and Huawei Watch GT2, then return both exports.
+Report generated on iOS `26.5.2` with SDK `iphoneos26.5` and Xcode build `17F113`.
 
-Record:
+Observed:
 
-- exact iPhone and iOS version;
-- Xcode/SDK metadata from the report;
-- whether Huawei Health was running or stopped;
-- whether either GT2 system Bluetooth entry changed state;
-- whether `FE86` produced the watch;
-- whether the 128-bit Huawei SDP UUID produced the watch as GATT;
-- all discovered services and characteristics;
-- ANCS authorization before and after the ANCS-required connection;
-- every ExternalAccessory record and protocol string.
+- Bluetooth authorization: allowed always;
+- Bluetooth state: powered on;
+- scan mode: all BLE advertisements;
+- remembered CoreBluetooth identifier: `43643418-5921-53E8-0928-72572613791A`;
+- the remembered identifier was retrievable, but no GATT services were exported;
+- all observed peripherals reported `ancsAuthorized = false`;
+- ExternalAccessory inventory was empty;
+- no advertisement contained `FE86` or the Huawei 128-bit SDP UUID;
+- the report does not establish which scanned peripheral, if any, is the GT2.
+
+Interpretation:
+
+- CoreBluetooth itself works on the target iPhone;
+- the saved identifier is not yet proven to be the watch;
+- this run did not demonstrate a usable BLE GATT, BR/EDR GATT, ANCS, or ExternalAccessory path;
+- an empty service list is not proof that the watch exposes no services, because the export may have been created before a successful connection and service discovery completed.
+
+The verdict therefore remains `UNKNOWN_NEEDS_MORE_EVIDENCE`.
+
+## Remaining physical evidence required
+
+1. Repeat the export only after a candidate shows `Connected` and service discovery has completed.
+2. Run and export the dedicated `FE86` scan.
+3. Run and export the dedicated `82FF3820-8411-400C-B85A-55BDB32CF060` GATT-filter scan.
+4. For the remembered candidate, use the ANCS-required connection and record whether authorization or a system prompt changes.
+5. Refresh ExternalAccessory after the watch is connected in system Bluetooth.
+6. Record whether Huawei Health was open, force-closed, or running in background.
 
 Do not unpair, reset, remove a bond, or uninstall Huawei Health for Gate 0.
 
@@ -105,4 +123,4 @@ Do not unpair, reset, remove a bond, or uninstall Huawei Health for Gate 0.
 
 ## Current conclusion
 
-The source evidence makes private RFCOMM the principal risk. The iOS diagnostic code can disprove some paths, but simulator CI cannot settle the transport question. Protocol, authentication, crypto, music, and notification packet work remain blocked until this Gate produces physical evidence and the license mode is selected.
+The source evidence makes private RFCOMM the principal risk. The first physical report did not expose a usable public transport path, but it also did not conclusively test a successfully connected and identified GT2. Protocol, authentication, crypto, music, and notification packet work remain blocked until the remaining physical checks are complete and the license mode is selected.
