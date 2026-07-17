@@ -6,9 +6,10 @@ Verified: 2026-07-17
 
 - Current project host: `https://codeberg.org/Freeyourgadget/Gadgetbridge`
 - Current release observed through F-Droid: `0.92.2`, added 2026-07-13
+- Exact source commit from F-Droid build metadata: `a221d9ab2c0a823bddc6edd18bde8a8f317f75be`
 - License reported by F-Droid: `AGPL-3.0-only`
 
-The automated environment could not retrieve Codeberg source pages during this run. An exact full Codeberg commit SHA is therefore still pending. Do not silently substitute the archived GitHub mirror as the current canonical repository.
+Codeberg source pages were not directly retrievable by the automated environment, so the full current-source pin was independently resolved through F-Droid's build metadata for version code 251. Do not silently substitute the archived GitHub mirror as the current canonical repository.
 
 ## Architecture cross-check source
 
@@ -41,7 +42,7 @@ These BLE identifiers must not be assumed to provide the same GT2 transport as `
 
 ## Files still required before any protocol implementation
 
-The following files must be rechecked against an exact current Codeberg commit before direct implementation work:
+The following files must be rechecked at Codeberg commit `a221d9ab2c0a823bddc6edd18bde8a8f317f75be` before direct implementation work:
 
 - `devices/huawei/HuaweiConstants.java`
 - `devices/huawei/HuaweiPacket.java`
@@ -62,7 +63,7 @@ No Gadgetbridge implementation code has been copied, translated, or ported in th
 
 Before a later protocol PR:
 
-1. resolve and record an exact Codeberg commit SHA or signed release tag;
+1. verify the required source files at the pinned Codeberg commit;
 2. select AGPL derivative or clean-room mode;
 3. record every source file actually studied or transferred;
 4. preserve required copyright and license notices if derivative mode is selected.
