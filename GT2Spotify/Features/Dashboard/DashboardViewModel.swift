@@ -17,6 +17,22 @@ final class DashboardViewModel: ObservableObject {
 
     let isConfigured: Bool
 
+    var activeDevice: SpotifyDevice? {
+        devices.first(where: \.isActive)
+    }
+
+    var volumeCapabilityKnown: Bool {
+        playback != nil || activeDevice != nil
+    }
+
+    var supportsSpotifyVolumeControl: Bool {
+        playback?.supportsVolume ?? activeDevice?.supportsVolume ?? false
+    }
+
+    var shouldUseSystemVolumeControl: Bool {
+        isAuthorized && volumeCapabilityKnown && !supportsSpotifyVolumeControl
+    }
+
     private let tokenStore: SpotifyTokenStore
     private let authorizationController: SpotifyAuthorizationController
     private let playerController: SpotifyPlayerController
