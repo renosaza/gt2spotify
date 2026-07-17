@@ -28,6 +28,7 @@ struct PlaybackSnapshot: Equatable, Sendable {
     let artist: String
     let isPlaying: Bool
     let volumePercent: Int?
+    let supportsVolume: Bool
     let deviceID: String?
     let deviceName: String?
     let timestamp: Date
@@ -41,6 +42,7 @@ struct SpotifyDevice: Codable, Equatable, Sendable, Identifiable {
     let name: String
     let type: String
     let volumePercent: Int?
+    let supportsVolume: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -50,6 +52,7 @@ struct SpotifyDevice: Codable, Equatable, Sendable, Identifiable {
         case name
         case type
         case volumePercent = "volume_percent"
+        case supportsVolume = "supports_volume"
     }
 }
 
@@ -74,6 +77,7 @@ struct SpotifyPlaybackResponse: Codable, Sendable {
             artist: item?.displayArtist ?? "Unknown artist",
             isPlaying: isPlaying,
             volumePercent: device.volumePercent,
+            supportsVolume: device.supportsVolume,
             deviceID: device.id,
             deviceName: device.name,
             timestamp: now
@@ -144,6 +148,7 @@ enum SpotifyError: Error, LocalizedError, Equatable, Sendable {
     case decoding(String)
     case network(String)
     case volumeUnavailable
+    case volumeControlUnavailable(deviceName: String?)
 
     var errorDescription: String? {
         switch self {
@@ -180,6 +185,9 @@ enum SpotifyError: Error, LocalizedError, Equatable, Sendable {
             return "Network request failed: \(message)."
         case .volumeUnavailable:
             return "The active Spotify device did not report a volume."
+        case .volumeControlUnavailable(let deviceName):
+            let name = deviceName ?? "The active Spotify device"
+            return "\(name) does not support Spotify Web API volume control. Use the system volume slider instead."
         }
     }
 }
