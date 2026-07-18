@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import SwiftUI
 import UIKit
 
@@ -148,6 +148,7 @@ private struct HuaweiQRScannerView: UIViewControllerRepresentable {
             self.onError = onError
         }
 
+        @MainActor
         func configure(in controller: UIViewController) {
             guard let device = AVCaptureDevice.default(for: .video) else {
                 onError("No camera is available.")
