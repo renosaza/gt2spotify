@@ -112,3 +112,50 @@ final class BluetoothDiscoveryTests: XCTestCase {
         XCTAssertEqual(entries.map(\.id), [second.id, third.id])
     }
 }
+
+final class TransportFeasibilityTests: XCTestCase {
+    func testGateZeroScanFiltersAreExact() {
+        XCTAssertNil(TransportScanMode.all.serviceStrings)
+        XCTAssertEqual(TransportScanMode.fe86.serviceStrings, ["FE86"])
+        XCTAssertEqual(
+            TransportScanMode.huaweiSDP.serviceStrings,
+            ["82FF3820-8411-400C-B85A-55BDB32CF060"]
+        )
+    }
+
+    func testReportDefaultsToUnknownWithoutPhysicalEvidence() throws {
+        let report = fixtureReport()
+        let json = try TransportReportFormatter.json(report)
+        XCTAssertTrue(json.contains("UNKNOWN_NEEDS_MORE_EVIDENCE"))
+        XCTAssertFalse(json.contains("access_token"))
+        XCTAssertFalse(json.contains("refresh_token"))
+        XCTAssertFalse(json.contains("notification body"))
+    }
+
+    func testMarkdownStatesPhysicalEvidenceLimitation() {
+        let markdown = TransportReportFormatter.markdown(fixtureReport())
+        XCTAssertTrue(markdown.contains("Simulator CI is not Bluetooth evidence"))
+        XCTAssertTrue(markdown.contains("82FF3820-8411-400C-B85A-55BDB32CF060"))
+        XCTAssertTrue(markdown.contains("No Spotify token"))
+    }
+
+    private func fixtureReport() -> TransportReport {
+        TransportReport(
+            generatedAt: "2026-07-17T12:00:00Z",
+            verdict: .unknownNeedsMoreEvidence,
+            iOSVersion: "test",
+            model: "test",
+            xcodeBuild: "test",
+            sdkName: "test",
+            bluetoothState: "Powered On",
+            bluetoothAuthorization: "Allowed always",
+            scanMode: TransportScanMode.huaweiSDP.rawValue,
+            rememberedIdentifier: nil,
+            connectedIdentifier: nil,
+            peripherals: [],
+            services: [],
+            accessories: [],
+            notes: ["82FF3820-8411-400C-B85A-55BDB32CF060 is not proof of RFCOMM"]
+        )
+    }
+}

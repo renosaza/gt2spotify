@@ -41,6 +41,8 @@
     <string>GT2Spotify uses Bluetooth to discover and inspect a nearby Huawei Watch for music-control integration.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>GT2Spotify uses Bluetooth to communicate with a nearby Huawei Watch.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>GT2Spotify uses the camera to scan the pairing QR code shown on a Huawei Watch.</string>
     <key>SpotifyClientID</key>
     <string>$(SPOTIFY_CLIENT_ID)</string>
     <key>SpotifyRedirectURI</key>
